@@ -1,13 +1,14 @@
 package com.somepro.infrastructure.persistence.task.converter;
 
-import com.somepro.domain.task.model.PatrolTask;
 import com.somepro.infrastructure.persistence.task.po.PatrolTaskPO;
+import com.somepro.domain.task.model.PatrolTask;
 
 /**
  * PatrolTaskPO（表）↔ PatrolTask（领域）转换器（基础设施层）。
  *
- * obs_count / abnormal_count / started_at / finished_at 不属于本模块管理的字段，
- * 领域对象不承载；PO 侧保持 null，落库时走表默认值（MyBatis-Plus 非空策略跳过）。
+ * obs_count / abnormal_count / started_at / finished_at 由执行环节（开工/完成回报）写入：
+ * 读路径照常带上供详情与进度翻页展示；派发/修改/取消走 MyBatis-Plus 非空策略，
+ * 新任务这些字段为 null 不落库，走表默认值。
  */
 public final class PatrolTaskPoConverter {
 
@@ -24,6 +25,10 @@ public final class PatrolTaskPoConverter {
         po.setPlannedDate(domain.getPlannedDate());
         po.setExecutor(domain.getExecutor());
         po.setStatus(domain.getStatus());
+        po.setObsCount(domain.getObsCount());
+        po.setAbnormalCount(domain.getAbnormalCount());
+        po.setStartedAt(domain.getStartedAt());
+        po.setFinishedAt(domain.getFinishedAt());
         po.setDelFlag(domain.getDelFlag());
         po.setCreateBy(domain.getCreateBy());
         po.setCreateTime(domain.getCreateTime());
@@ -42,6 +47,10 @@ public final class PatrolTaskPoConverter {
         domain.setPlannedDate(po.getPlannedDate());
         domain.setExecutor(po.getExecutor());
         domain.setStatus(po.getStatus());
+        domain.setObsCount(po.getObsCount());
+        domain.setAbnormalCount(po.getAbnormalCount());
+        domain.setStartedAt(po.getStartedAt());
+        domain.setFinishedAt(po.getFinishedAt());
         domain.setDelFlag(po.getDelFlag());
         domain.setCreateBy(po.getCreateBy());
         domain.setCreateTime(po.getCreateTime());

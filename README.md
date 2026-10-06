@@ -184,7 +184,7 @@ PO↔领域↔VO 三层分离，DB 调用统一走仓储适配器的 `blocking(.
 | 监测站 | `/api/stations` | `POST` 新立（编号 `ST-YYYY-NNNN` 自动生成，也可显式指定，撞号返回业务失败不甩底层错）、`GET /{id}` 详情（带名下在册/停测点位数）、`PUT /{id}` 改资料、`POST /{id}/suspend` 停用、`POST /{id}/close` 关闭（名下有在册点位时拒绝）、`GET` 条件分页（name/level/region/status 全空翻整份名册） |
 | 监测点 | `/api/sites` | `POST` 登记（编号 `MP-YYYY-NNNN`，目标站必须存在且未停用未关闭）、`GET /{id}`、`PUT /{id}`、`POST /{id}/deactivate` 停测、`POST /{id}/activate` 恢复在册、`DELETE /{id}` 撤点（逻辑删除）、`GET` 条件分页（stationId/siteType/habitat/status） |
 | 物种名录 | `/api/species` | `POST` 录入（编码 `SP-NNNN`，保护级别默认 COMMON、状态默认 ENABLED）、`GET /{id}`、`PUT /{id}`、`POST /{id}/disable` 停用（不删除）、`GET` 条件分页（name/protectionLevel/status） |
-| 巡护任务 | `/api/tasks` | `POST` 派发（编号 `PT-YYYY-NNNN` 自动生成，也可显式指定，撞号返回业务失败不甩底层错；默认待执行）、`GET /{id}` 详情、`PUT /{id}` 改任务、`POST /{id}/cancel` 取消（置已取消并逻辑销账：名单翻不到、账留在表里）、`GET` 条件分页（stationId/siteId/patrolType/status/plannedDate 全空翻整份任务，每行带任务编号） |
+| 巡护任务 | `/api/tasks` | `POST` 派发（编号 `PT-YYYY-NNNN` 自动生成，也可显式指定，撞号返回业务失败不甩底层错；默认待执行）、`GET /{id}` 详情、`PUT /{id}` 改任务、`POST /{id}/start` 开工、`POST /{id}/complete` 完成回报、`POST /{id}/cancel` 取消（置已取消并逻辑销账：名单翻不到、账留在表里）、`GET` 条件分页（stationId/siteId/patrolType/status/plannedDate 全空翻整份任务，每行带任务编号） |
 
 约定：
 - 编号生成「取号→落库」一体化重试（`BizNoGenerator`）：并发撞号重新取号，唯一索引兜底，
@@ -194,6 +194,12 @@ PO↔领域↔VO 三层分离，DB 调用统一走仓储适配器的 `blocking(.
 - 派任务看两头：站得在运行（ACTIVE）、点得在册（ACTIVE），站停用/关闭、点停测都派不进去；
   同一个点同一天只挂一条还没走完（待执行/执行中）的任务，前面那条完了或撤了才派得下一条，
   已取消的不占位；计划日期不早于今天。
+- 任务执行单向流转：只有待执行才开得了工（开工置 IN_PROGRESS 记 started_at），只有执行中才
+  回报得了完成（置 DONE 记 finished_at）；已开工/已完成/已取消重复开工、没开工直接报完成都拦下。
+  开工与完成回报走「按原状态条件更新」，手快或并发点两下只有一下翻得动，时刻与账目不二次翻动。
+- 完成回报时把任务名下观测账归拢写回（obs_count 总条数、abnormal_count 异常条数，异常=受伤/
+  死亡/疑似疫病），与观测记录读同一张 t_wildlife_obs、同一套 del_flag 过滤，两边数字一致；
+  已结束/已取消的任务不再收新观测（领域钩子 `PatrolTask#acceptsObservation`），想补录得另开任务。
 - 已在真实 MySQL 上端到端验证：69 项空库全流程用例 + 13 项存量数据（any_16_fauna 种子库）用例全部通过，
   含 10 路并发建站、8 路并发建点的编号唯一性验证。
 

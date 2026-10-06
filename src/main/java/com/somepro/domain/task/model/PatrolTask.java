@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Set;
 
 /**
@@ -16,6 +17,11 @@ import java.util.Set;
  * - 状态 PENDING 待执行 / IN_PROGRESS 执行中 / DONE 已完成 / CANCELLED 已取消，
  *   新派下来的默认 PENDING；
  * - 计划日期不能早于今天（不能往过去派）；
+ * - 只有还没动身（PENDING）的任务才开得了工：开工置 IN_PROGRESS 并记下开工时刻，
+ *   已开工/已完成/已取消的都别重复开；
+ * - 只有正在执行（IN_PROGRESS）的任务才回报得了完成：回报置 DONE 并记下完成时刻，
+ *   同时把这一趟的观测账（总条数、异常条数）归拢写回，此后冻结不再翻动；
+ * - 已结束（DONE）/已取消的任务不再收新观测，想补录得另开任务；
  * - 只有还没走完的任务（待执行/执行中）能改资料；已完成是终态，不再改、不再取消；
  * - 「站必须在运行、点必须在册」的校验要查监测站/监测点仓储，由应用层编排，
  *   领域对象只保证自身字段不变量；「同点同日不挂两条未完成任务」同理在应用层校验。
@@ -66,6 +72,18 @@ public class PatrolTask extends BaseEntity {
 
     /** 状态：PENDING / IN_PROGRESS / DONE / CANCELLED */
     private String status;
+
+    /** 该任务下观测记录条数（完成回报时汇总回写，此后冻结） */
+    private Integer obsCount;
+
+    /** 其中异常个体条数（受伤/死亡/疑似疫病，完成回报时汇总回写） */
+    private Integer abnormalCount;
+
+    /** 开工时刻（开工时记下） */
+    private LocalDateTime startedAt;
+
+    /** 完成时刻（完成回报时记下） */
+    private LocalDateTime finishedAt;
 
     /** 工厂方法：派发巡护任务，默认待执行。 */
     public static PatrolTask create(Long stationId, Long siteId, String patrolType,
@@ -145,6 +163,62 @@ public class PatrolTask extends BaseEntity {
             throw new BizException("已完成的任务不能取消");
         }
         this.status = STATUS_CANCELLED;
+    }
+
+    /**
+     * 开工：待执行 -> 执行中，记下开工时刻。
+     * 已开工/已完成/已取消的都别重复开 —— 手快点两下，第二下没有可动的，直接拦下。
+     */
+    public void start() {
+        if (STATUS_IN_PROGRESS.equals(this.status)) {
+            throw new BizException("任务已开工，请勿重复开工");
+        }
+        if (STATUS_DONE.equals(this.status)) {
+            throw new BizException("任务已完成，不能再开工");
+        }
+        if (STATUS_CANCELLED.equals(this.status)) {
+            throw new BizException("任务已取消，不能再开工");
+        }
+        if (!STATUS_PENDING.equals(this.status)) {
+            throw new BizException("任务状态非法，不能开工");
+        }
+        this.status = STATUS_IN_PROGRESS;
+        this.startedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 完成回报：执行中 -> 已完成，记下完成时刻，并把这一趟的观测账归拢写回（此后冻结）。
+     * 还没开工的直接报完成不行；已完成的重复回报也没有可动的，直接拦下。
+     *
+     * @param obsCount      任务名下观测记录总条数（应用层按观测记录数清后传入）
+     * @param abnormalCount 其中异常个体条数（受伤/死亡/疑似疫病）
+     */
+    public void complete(int obsCount, int abnormalCount) {
+        if (STATUS_PENDING.equals(this.status)) {
+            throw new BizException("任务还没开工，不能直接报完成");
+        }
+        if (STATUS_DONE.equals(this.status)) {
+            throw new BizException("任务已完成，请勿重复回报");
+        }
+        if (STATUS_CANCELLED.equals(this.status)) {
+            throw new BizException("任务已取消，不能报完成");
+        }
+        if (!STATUS_IN_PROGRESS.equals(this.status)) {
+            throw new BizException("任务状态非法，不能报完成");
+        }
+        this.status = STATUS_DONE;
+        this.finishedAt = LocalDateTime.now();
+        this.obsCount = obsCount;
+        this.abnormalCount = abnormalCount;
+    }
+
+    /**
+     * 是否还能往里录观测：还没走完（待执行/执行中）的任务才收。
+     * 已完成的任务账已归拢冻结、已取消的已销账，都不再冒新观测，想补录得另开任务
+     * —— 观测录入那边照这个钩子把关，两头保持一致。
+     */
+    public boolean acceptsObservation() {
+        return unfinished();
     }
 
     private static String blankToNull(String value) {

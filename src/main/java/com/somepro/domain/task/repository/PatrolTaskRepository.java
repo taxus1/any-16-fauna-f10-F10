@@ -20,6 +20,22 @@ public interface PatrolTaskRepository {
     /** 取消：状态置 CANCELLED 并逻辑删除（del_flag=1），名单里不再出现，账仍留在表里。 */
     Mono<Void> cancel(PatrolTask task);
 
+    /**
+     * 开工落库：PENDING -> IN_PROGRESS 的条件更新（带上开工时刻），状态只翻动一次。
+     * 手快并发点两下也只有一下翻得动，另一下返回 false，不会把开工时刻改来改去。
+     *
+     * @return true 翻动成功；false 任务已不在待执行（被并发翻动）
+     */
+    Mono<Boolean> start(PatrolTask task);
+
+    /**
+     * 完成回报落库：IN_PROGRESS -> DONE 的条件更新，完成时刻与观测账（obs_count/abnormal_count）
+     * 一笔写回。状态只翻动一次，重复回报不会二次计数、不会挪动完成时刻。
+     *
+     * @return true 翻动成功；false 任务已不在执行中（被并发翻动）
+     */
+    Mono<Boolean> complete(PatrolTask task);
+
     Mono<PatrolTask> findById(Long id);
 
     /** 条件分页：站/点/类型/状态/计划日期都可空，全空时返回整份任务。 */

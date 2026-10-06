@@ -69,6 +69,22 @@ public class PatrolTaskController {
                 .then(Mono.just(Result.ok()));
     }
 
+    /** 开工：只有待执行的任务开得动；已开工/已完成/已取消的别重复开。 */
+    @PostMapping("/{id}/start")
+    public Mono<Result<PatrolTaskVO>> start(@PathVariable Long id) {
+        return taskAppService.start(id)
+                .map(PatrolTaskVoConverter::toVo)
+                .map(Result::ok);
+    }
+
+    /** 完成回报：只有执行中的任务回报得了；回报时把观测账（总条数、异常条数）归拢写回。 */
+    @PostMapping("/{id}/complete")
+    public Mono<Result<PatrolTaskVO>> complete(@PathVariable Long id) {
+        return taskAppService.complete(id)
+                .map(PatrolTaskVoConverter::toVo)
+                .map(Result::ok);
+    }
+
     /** 任务分页：stationId/siteId/patrolType/status/plannedDate 条件随意拼，全空翻整份任务。 */
     @GetMapping({"", "/list"})
     public Mono<Result<PageVO<PatrolTaskVO>>> page(

@@ -82,6 +82,38 @@ public class PatrolTaskRepositoryImpl implements PatrolTaskRepository {
     }
 
     @Override
+    public Mono<Boolean> start(PatrolTask task) {
+        return blocking(() -> {
+            // 条件更新：只有仍处 PENDING 的那一行才翻得动（并发点两下只放行一下）；
+            // SET 只带状态与开工时刻，审计字段由 MetaObjectHandler 填充，del_flag=0 由 @TableLogic 拼上。
+            PatrolTaskPO po = new PatrolTaskPO();
+            po.setStatus(task.getStatus());
+            po.setStartedAt(task.getStartedAt());
+            int rows = taskMapper.update(po, Wrappers.<PatrolTaskPO>lambdaUpdate()
+                    .eq(PatrolTaskPO::getId, task.getId())
+                    .eq(PatrolTaskPO::getStatus, PatrolTask.STATUS_PENDING));
+            return rows == 1;
+        });
+    }
+
+    @Override
+    public Mono<Boolean> complete(PatrolTask task) {
+        return blocking(() -> {
+            // 条件更新：只有仍处 IN_PROGRESS 的那一行才翻得动；
+            // 完成时刻与观测账一笔写回，重复回报翻不动、不会二次计数。
+            PatrolTaskPO po = new PatrolTaskPO();
+            po.setStatus(task.getStatus());
+            po.setFinishedAt(task.getFinishedAt());
+            po.setObsCount(task.getObsCount());
+            po.setAbnormalCount(task.getAbnormalCount());
+            int rows = taskMapper.update(po, Wrappers.<PatrolTaskPO>lambdaUpdate()
+                    .eq(PatrolTaskPO::getId, task.getId())
+                    .eq(PatrolTaskPO::getStatus, PatrolTask.STATUS_IN_PROGRESS));
+            return rows == 1;
+        });
+    }
+
+    @Override
     public Mono<PatrolTask> findById(Long id) {
         return blocking(() -> {
             PatrolTaskPO po = taskMapper.selectById(id);

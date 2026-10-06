@@ -1,6 +1,7 @@
 package com.somepro.application.task;
 
 import com.somepro.common.exception.BizException;
+import com.somepro.domain.obs.repository.WildlifeObsRepository;
 import com.somepro.domain.shared.model.PageResult;
 import com.somepro.domain.site.model.MonitorSite;
 import com.somepro.domain.site.repository.MonitorSiteRepository;
@@ -14,7 +15,7 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDate;
 
 /**
- * 巡护任务应用层：编排巡护任务用例（派发、修改、详情、取消、条件分页）。
+ * 巡护任务应用层：编排巡护任务用例（派发、修改、详情、开工、完成回报、取消、条件分页）。
  *
  * 派发门槛（看两头）：
  * - 站得是在运行的（ACTIVE）：停用/关闭的站不再往那儿派；
@@ -22,6 +23,11 @@ import java.time.LocalDate;
  * - 同一个点同一天只挂一条还没走完的任务：前面那条待执行/执行中就先别派，
  *   等它完了或者撤了再派；已取消的不占位，那天能重派。
  * 改任务时换站/换点/改计划日期，同样要过这三道校验（占位校验排除自己）。
+ *
+ * 执行环节：
+ * - 开工只开得动待执行的任务；完成回报只回报得了执行中的任务，没开工不能直接报完成；
+ * - 完成回报时把任务名下的观测账（总条数、异常条数）从观测记录里数清写回，
+ *   与观测录入读同一张表，两边数字对得上；已完成的任务不再收新观测，补录得另开任务。
  */
 @Service
 public class PatrolTaskAppService {
@@ -29,13 +35,16 @@ public class PatrolTaskAppService {
     private final PatrolTaskRepository taskRepository;
     private final MonitorStationRepository stationRepository;
     private final MonitorSiteRepository siteRepository;
+    private final WildlifeObsRepository obsRepository;
 
     public PatrolTaskAppService(PatrolTaskRepository taskRepository,
                                 MonitorStationRepository stationRepository,
-                                MonitorSiteRepository siteRepository) {
+                                MonitorSiteRepository siteRepository,
+                                WildlifeObsRepository obsRepository) {
         this.taskRepository = taskRepository;
         this.stationRepository = stationRepository;
         this.siteRepository = siteRepository;
+        this.obsRepository = obsRepository;
     }
 
     /** 派发巡护任务：默认待执行；taskNo 留空时由仓储层按 PT-YYYY-NNNN 生成。 */
@@ -95,6 +104,41 @@ public class PatrolTaskAppService {
                     task.cancel();
                     return taskRepository.cancel(task);
                 });
+    }
+
+    /**
+     * 开工：待执行 -> 执行中，记下开工时刻。
+     * 已开工/已完成/已取消的别重复开（领域对象拦下）；并发点两下由条件更新兜底，
+     * 只有一下翻得动，另一下报状态已变化，开工时刻不会被改来改去。
+     */
+    public Mono<PatrolTask> start(Long id) {
+        return taskRepository.findById(id)
+                .switchIfEmpty(Mono.error(new BizException("巡护任务不存在")))
+                .flatMap(task -> {
+                    task.start();
+                    return taskRepository.start(task)
+                            .flatMap(flipped -> flipped
+                                    ? Mono.just(task)
+                                    : Mono.error(new BizException("任务状态已变化，请刷新后重试")));
+                });
+    }
+
+    /**
+     * 完成回报：执行中 -> 已完成，记下完成时刻，并把这一趟的观测账归拢写回。
+     * 账从观测记录里按任务数清（总条数、异常条数），与观测录入对得上；
+     * 还没开工的直接报完成不行，已完成的重复回报也不会二次计数、不挪完成时刻。
+     */
+    public Mono<PatrolTask> complete(Long id) {
+        return taskRepository.findById(id)
+                .switchIfEmpty(Mono.error(new BizException("巡护任务不存在")))
+                .flatMap(task -> obsRepository.summarizeByTaskId(task.getId())
+                        .flatMap(summary -> {
+                            task.complete(summary.obsCount(), summary.abnormalCount());
+                            return taskRepository.complete(task)
+                                    .flatMap(flipped -> flipped
+                                            ? Mono.just(task)
+                                            : Mono.error(new BizException("任务状态已变化，请刷新后重试")));
+                        }));
     }
 
     /** 条件分页：站/点/类型/状态/计划日期随意拼，全空翻整份任务。 */
