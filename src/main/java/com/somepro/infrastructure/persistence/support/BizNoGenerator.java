@@ -38,12 +38,25 @@ public final class BizNoGenerator {
      * @param insertWithNo 用给定编号执行落库；撞唯一索引时应让 DuplicateKeyException 抛出来
      * @param <T>         落库后的返回类型
      */
+    /**
+     * 取号并落库，撞号自动重取（序号默认 4 位零填充，见 {@link #SEQ_WIDTH}）。
+     */
     public static <T> T insertWithRetry(Supplier<Long> maxSeqQuery, String prefix,
                                         Function<String, T> insertWithNo) {
+        return insertWithRetry(maxSeqQuery, prefix, insertWithNo, SEQ_WIDTH);
+    }
+
+    /**
+     * 取号并落库，撞号自动重取，序号位数可指定。
+     *
+     * @param seqWidth 序号零填充位数（如观测编号 WO-2026-000001 用 6 位；超出位数自然扩展，不截断）
+     */
+    public static <T> T insertWithRetry(Supplier<Long> maxSeqQuery, String prefix,
+                                        Function<String, T> insertWithNo, int seqWidth) {
         for (int attempt = 1; ; attempt++) {
             Long maxSeq = maxSeqQuery.get();
             long next = (maxSeq == null ? 0 : maxSeq) + 1;
-            String no = prefix + String.format("%0" + SEQ_WIDTH + "d", next);
+            String no = prefix + String.format("%0" + seqWidth + "d", next);
             try {
                 return insertWithNo.apply(no);
             } catch (DuplicateKeyException e) {
