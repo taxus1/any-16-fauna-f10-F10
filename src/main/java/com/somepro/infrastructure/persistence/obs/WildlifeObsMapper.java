@@ -26,4 +26,14 @@ public interface WildlifeObsMapper extends BaseMapper<WildlifeObsPO> {
     @Select("SELECT MAX(CAST(SUBSTRING(obs_no, #{seqStart}) AS UNSIGNED)) "
             + "FROM t_wildlife_obs WHERE obs_no LIKE CONCAT(#{prefix}, '%')")
     Long selectMaxSeq(@Param("prefix") String prefix, @Param("seqStart") int seqStart);
+
+    /**
+     * 锁住一条观测记录（SELECT ... FOR UPDATE），供异常上报登记时把「同一观测只落一条
+     * 未作废上报」串行化：并发上报在锁上排队，前面那单落库提交后，后面这单才数得到它。
+     *
+     * 自定义 @Select 不拼 del_flag：作废行的锁也取得到（作废观测早被应用层拦掉，这里只为取锁）。
+     * 必须在事务里调用，行锁随事务提交/回滚释放。
+     */
+    @Select("SELECT id FROM t_wildlife_obs WHERE id = #{id} FOR UPDATE")
+    Long lockById(@Param("id") Long id);
 }
