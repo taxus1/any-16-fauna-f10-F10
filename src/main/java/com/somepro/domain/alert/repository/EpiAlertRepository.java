@@ -4,6 +4,9 @@ import com.somepro.domain.alert.model.EpiAlert;
 import com.somepro.domain.shared.model.PageResult;
 import reactor.core.publisher.Mono;
 
+import java.util.Collection;
+import java.util.List;
+
 /**
  * 疫病预警与处置的仓储端口（领域层定义，基础设施层实现）。
  *
@@ -16,6 +19,13 @@ public interface EpiAlertRepository {
      * 按 id 查看在册预警（del_flag=0）。
      */
     Mono<EpiAlert> findById(Long id);
+
+    /**
+     * 按样本 id 批量列在册预警（del_flag=0），按 id 升序 —— 事件线倒查专用。
+     * 已销掉的预警不串进线；没结案的、处置过的、解除过的都在册，都回。
+     * sampleIds 为空时直接回空列表，不拼空 IN。
+     */
+    Mono<List<EpiAlert>> listBySampleIds(Collection<Long> sampleIds);
 
     /**
      * 处置推进落库：按原状态条件更新（WHERE id=? AND status=fromStatus），状态只翻动一次。

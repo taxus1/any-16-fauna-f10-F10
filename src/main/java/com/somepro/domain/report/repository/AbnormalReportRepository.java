@@ -4,6 +4,8 @@ import com.somepro.domain.report.model.AbnormalReport;
 import com.somepro.domain.shared.model.PageResult;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
+
 /**
  * 异常个体上报的仓储端口（领域层定义，基础设施层实现）。
  */
@@ -20,6 +22,13 @@ public interface AbnormalReportRepository {
      * 按 id 查看在册上报（del_flag=0）。已作废的翻不到，返回空。
      */
     Mono<AbnormalReport> findById(Long id);
+
+    /**
+     * 按观测 id 列上报，含已作废的（del_flag=1 也列），按 id 升序 —— 事件线倒查专用：
+     * 销掉的上报本身不串进线（调用方按 delFlag 滤掉），但它名下送过的样本、立过的预警
+     * 是实打实发生过的，得顺着它往下找。名单类查询仍走 {@link #findById} / {@link #page}。
+     */
+    Mono<List<AbnormalReport>> listAnyByObsId(Long obsId);
 
     /**
      * 处置推进落库：按原状态条件更新（WHERE id=? AND status=fromStatus），状态只翻动一次。

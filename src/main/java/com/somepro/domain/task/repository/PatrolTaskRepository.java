@@ -38,6 +38,12 @@ public interface PatrolTaskRepository {
 
     Mono<PatrolTask> findById(Long id);
 
+    /**
+     * 按 id 查任务，含已取消销账的（del_flag=1 也查得到）—— 事件线倒查专用：
+     * 取消是后来发生的，当初那趟巡护不能跟着没掉。名单类查询仍走 {@link #findById}。
+     */
+    Mono<PatrolTask> findAnyById(Long id);
+
     /** 条件分页：站/点/类型/状态/计划日期都可空，全空时返回整份任务。 */
     Mono<PageResult<PatrolTask>> page(int pageNum, int pageSize,
                                       Long stationId, Long siteId, String patrolType,

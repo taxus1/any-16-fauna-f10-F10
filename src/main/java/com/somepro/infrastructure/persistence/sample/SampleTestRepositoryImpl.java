@@ -29,6 +29,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -94,6 +95,19 @@ public class SampleTestRepositoryImpl implements SampleTestRepository {
         return blocking(() -> {
             SampleTestPO po = sampleMapper.selectById(id);
             return po == null ? null : SampleTestPoConverter.toDomain(po);
+        });
+    }
+
+    @Override
+    public Mono<List<SampleTest>> listAnyByReportIds(Collection<Long> reportIds) {
+        return blocking(() -> {
+            if (reportIds == null || reportIds.isEmpty()) {
+                return List.<SampleTest>of();
+            }
+            // 自定义 @Select 不拼 del_flag：已删除的样本也列出来（事件线倒查用，
+            // 进不进线由调用方按 delFlag 定，这里只管把整条链的下家找全）。
+            List<SampleTestPO> rows = sampleMapper.selectAnyByReportIds(reportIds);
+            return rows.stream().map(SampleTestPoConverter::toDomain).collect(Collectors.toList());
         });
     }
 

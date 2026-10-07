@@ -19,6 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -54,6 +55,21 @@ public class EpiAlertRepositoryImpl implements EpiAlertRepository {
         return blocking(() -> {
             EpiAlertPO po = alertMapper.selectById(id);
             return po == null ? null : EpiAlertPoConverter.toDomain(po);
+        });
+    }
+
+    @Override
+    public Mono<List<EpiAlert>> listBySampleIds(Collection<Long> sampleIds) {
+        return blocking(() -> {
+            if (sampleIds == null || sampleIds.isEmpty()) {
+                return List.<EpiAlert>of();
+            }
+            // @TableLogic 自动拼 del_flag=0：已销掉的预警不串进线；
+            // 没结案/处置过/解除过的都在册，都回。
+            List<EpiAlertPO> rows = alertMapper.selectList(Wrappers.<EpiAlertPO>lambdaQuery()
+                    .in(EpiAlertPO::getSampleId, sampleIds)
+                    .orderByAsc(EpiAlertPO::getId));
+            return rows.stream().map(EpiAlertPoConverter::toDomain).collect(Collectors.toList());
         });
     }
 

@@ -17,6 +17,12 @@ public interface MonitorSiteRepository {
 
     Mono<MonitorSite> findById(Long id);
 
+    /**
+     * 按 id 查点位，含已撤点的（del_flag=1 也查得到）—— 事件线倒查专用：
+     * 撤点是后来发生的，当初是在这个点上巡的。名单类查询仍走 {@link #findById}。
+     */
+    Mono<MonitorSite> findAnyById(Long id);
+
     /** 条件分页：条件全空时返回整份名册。 */
     Mono<PageResult<MonitorSite>> page(int pageNum, int pageSize,
                                        Long stationId, String siteType, String habitat, String status);

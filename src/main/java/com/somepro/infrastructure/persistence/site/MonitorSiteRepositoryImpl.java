@@ -78,6 +78,15 @@ public class MonitorSiteRepositoryImpl implements MonitorSiteRepository {
     }
 
     @Override
+    public Mono<MonitorSite> findAnyById(Long id) {
+        return blocking(() -> {
+            // 自定义 @Select 不拼 del_flag：已撤的点位也查得到（事件线倒查用）。
+            MonitorSitePO po = siteMapper.selectAnyById(id);
+            return po == null ? null : MonitorSitePoConverter.toDomain(po);
+        });
+    }
+
+    @Override
     public Mono<PageResult<MonitorSite>> page(int pageNum, int pageSize,
                                               Long stationId, String siteType, String habitat, String status) {
         return this.<PageResult<MonitorSite>>blocking(() -> {

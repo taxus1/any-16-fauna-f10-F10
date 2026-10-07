@@ -122,6 +122,15 @@ public class PatrolTaskRepositoryImpl implements PatrolTaskRepository {
     }
 
     @Override
+    public Mono<PatrolTask> findAnyById(Long id) {
+        return blocking(() -> {
+            // 自定义 @Select 不拼 del_flag：已取消销账的任务也查得到（事件线倒查用）。
+            PatrolTaskPO po = taskMapper.selectAnyById(id);
+            return po == null ? null : PatrolTaskPoConverter.toDomain(po);
+        });
+    }
+
+    @Override
     public Mono<PageResult<PatrolTask>> page(int pageNum, int pageSize,
                                              Long stationId, Long siteId, String patrolType,
                                              String status, LocalDate plannedDate) {

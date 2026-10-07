@@ -6,6 +6,9 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.Collection;
+import java.util.List;
+
 /**
  * 采样送检与检测的 MyBatis-Plus Mapper（基础设施层）。
  *
@@ -26,4 +29,16 @@ public interface SampleTestMapper extends BaseMapper<SampleTestPO> {
     @Select("SELECT MAX(CAST(SUBSTRING(sample_no, #{seqStart}) AS UNSIGNED)) "
             + "FROM t_sample_test WHERE sample_no LIKE CONCAT(#{prefix}, '%')")
     Long selectMaxSeq(@Param("prefix") String prefix, @Param("seqStart") int seqStart);
+
+    /**
+     * 按上报 id 批量列样本（含已删除的），按 id 升序 —— 事件线倒查专用。
+     * 自定义 @Select 不拼 del_flag：销掉的样本本身不进线（调用方滤），
+     * 但它触发过的预警得顺着它往下找。reportIds 为空时调用方别传进来（空 IN 是非法 SQL）。
+     */
+    @Select("<script>"
+            + "SELECT * FROM t_sample_test WHERE report_id IN "
+            + "<foreach collection='reportIds' item='reportId' open='(' separator=',' close=')'>#{reportId}</foreach>"
+            + " ORDER BY id"
+            + "</script>")
+    List<SampleTestPO> selectAnyByReportIds(@Param("reportIds") Collection<Long> reportIds);
 }

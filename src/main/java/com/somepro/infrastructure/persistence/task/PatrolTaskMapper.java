@@ -26,4 +26,11 @@ public interface PatrolTaskMapper extends BaseMapper<PatrolTaskPO> {
     @Select("SELECT MAX(CAST(SUBSTRING(task_no, #{seqStart}) AS UNSIGNED)) "
             + "FROM t_patrol_task WHERE task_no LIKE CONCAT(#{prefix}, '%')")
     Long selectMaxSeq(@Param("prefix") String prefix, @Param("seqStart") int seqStart);
+
+    /**
+     * 按 id 查任务（含已取消销账的）—— 事件线倒查专用。
+     * 自定义 @Select 不拼 del_flag：已取消的任务也得能倒出来，当初那趟巡护不能跟着销账没掉。
+     */
+    @Select("SELECT * FROM t_patrol_task WHERE id = #{id}")
+    PatrolTaskPO selectAnyById(@Param("id") Long id);
 }

@@ -79,6 +79,17 @@ public class WildlifeObsRepositoryImpl implements WildlifeObsRepository {
     }
 
     @Override
+    public Mono<WildlifeObs> findByObsNo(String obsNo) {
+        return blocking(() -> {
+            // @TableLogic 自动拼 del_flag=0：已作废（销掉）的观测这里就查不到，
+            // 事件线照「编号查不到」回空线，不报错。
+            WildlifeObsPO po = obsMapper.selectOne(Wrappers.<WildlifeObsPO>lambdaQuery()
+                    .eq(WildlifeObsPO::getObsNo, obsNo));
+            return po == null ? null : WildlifeObsPoConverter.toDomain(po);
+        });
+    }
+
+    @Override
     public Mono<Void> voidObs(Long id) {
         return blocking(() -> {
             // @TableLogic 把 deleteById 改写成 UPDATE t_wildlife_obs SET del_flag=1
