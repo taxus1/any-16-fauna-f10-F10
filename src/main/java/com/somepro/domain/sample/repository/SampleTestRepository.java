@@ -20,9 +20,10 @@ public interface SampleTestRepository {
     Mono<SampleTest> findById(Long id);
 
     /**
-     * 检测结果落库 + 上报联动，一个事务两头一起动：
+     * 检测结果落库 + 联动，一个事务三头一起动：
      * 样本按 result=PENDING 条件更新（同一条样本只翻得动一次，并发/重复录入在这被拦），
      * 上报从在办（已上报/处置中）推到已采样；上报已结案或已不走采样线的，整体回滚报错。
+     * 结果一录成阳性，同一个事务里再立一条疫病预警（同一份阳性样本只落一条，已有就不再落）。
      */
     Mono<SampleTest> recordResult(SampleTest sample);
 

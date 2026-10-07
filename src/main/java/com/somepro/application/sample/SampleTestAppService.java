@@ -17,8 +17,9 @@ import java.time.LocalDateTime;
  * 登记一道前置：挂的那条上报得还在办（已上报/处置中）——已结案 CLOSED 的别再采样，
  * 已救护/已采样的也不在在办状态，同样采不了。
  *
- * 结果回填的联动（样本翻结果 + 上报推已采样，一个事务两头一起动）由仓储层落；
+ * 结果回填的联动（样本翻结果 + 上报推已采样 + 阳性立预警，一个事务三头一起动）由仓储层落；
  * 「结果只录一次、同一条样本别来回翻」由领域对象拦一道、仓储条件更新兜底。
+ * 结果一录成阳性，这条预警就跟着冒出来，不等人另外点一下；结果不是阳性的立不出来。
  */
 @Service
 public class SampleTestAppService {
@@ -48,7 +49,7 @@ public class SampleTestAppService {
 
     /**
      * 检测结果回填：结果只录一次，同一条样本别来回翻；录进去的同时上报从在办推到
-     * 已采样，两头一起动；结果还悬着没出的，上报那头先别动。
+     * 已采样，阳性样本再跟着立一条预警，三头一起动；结果还悬着没出的，上报那头先别动。
      */
     public Mono<SampleTest> recordResult(Long id, String result, LocalDateTime testedAt) {
         return sampleRepository.findById(id)

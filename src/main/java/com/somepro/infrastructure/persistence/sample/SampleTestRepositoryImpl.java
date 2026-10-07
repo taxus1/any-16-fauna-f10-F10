@@ -5,12 +5,18 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.pagehelper.PageHelper;
 import com.somepro.common.exception.BizException;
+import com.somepro.domain.alert.model.EpiAlert;
 import com.somepro.domain.report.model.AbnormalReport;
 import com.somepro.domain.sample.model.SampleTest;
 import com.somepro.domain.sample.repository.SampleTestRepository;
 import com.somepro.domain.shared.model.PageResult;
 import com.somepro.infrastructure.config.ReactiveOperatorContext;
+import com.somepro.infrastructure.persistence.alert.EpiAlertMapper;
+import com.somepro.infrastructure.persistence.alert.converter.EpiAlertPoConverter;
+import com.somepro.infrastructure.persistence.alert.po.EpiAlertPO;
 import com.somepro.infrastructure.persistence.audit.AuditContextHolder;
+import com.somepro.infrastructure.persistence.obs.WildlifeObsMapper;
+import com.somepro.infrastructure.persistence.obs.po.WildlifeObsPO;
 import com.somepro.infrastructure.persistence.report.AbnormalReportMapper;
 import com.somepro.infrastructure.persistence.report.po.AbnormalReportPO;
 import com.somepro.infrastructure.persistence.sample.converter.SampleTestPoConverter;
@@ -34,11 +40,16 @@ import java.util.stream.Collectors;
  * 并发撞号由 {@link BizNoGenerator} 重试，唯一索引兜底，一个号只落一条；
  * 删除记录占用的编号不复用（selectMaxSeq 的自定义 @Select 不拼 del_flag）。
  *
- * 检测结果回填是「两头一起动」：一个事务里先按 result=PENDING 条件更新样本
+ * 检测结果回填是「三头一起动」：一个事务里先按 result=PENDING 条件更新样本
  * （同一条样本的结果只翻得动一次，并发/重复录入在这被拦），再把上报从在办
  * （已上报/处置中）条件更新推到已采样；上报已不在在办的 —— 已采样是幂等放行
  * （同一份上报前一条样本录结果时推过），已救护/已结案/已作废则整体回滚报错，
  * 样本那行也不落。
+ *
+ * 结果一录成阳性，同一个事务里再立一条疫病预警（不等人另外点一下；结果不是阳性的立不出来）。
+ * 同一份阳性样本只落一条：样本行已被上面的条件更新锁住到事务提交，前后脚递两回在样本侧
+ * 就只放行一下，这里再数一道兜底，已有就不再落；编号 AL-YYYY-NNNN 撞号重取，不甩底层错。
+ * 预警级别在上报当初判定的严重程度之上叠观测快照的保护级别算（领域工厂 EpiAlert.raise）。
  */
 @Repository
 public class SampleTestRepositoryImpl implements SampleTestRepository {
@@ -46,15 +57,24 @@ public class SampleTestRepositoryImpl implements SampleTestRepository {
     /** 编号前缀：SM-（完整形如 SM-2026-） */
     private static final String NO_PREFIX = "SM-";
 
+    /** 预警编号前缀：AL-（完整形如 AL-2026-） */
+    private static final String ALERT_NO_PREFIX = "AL-";
+
     private final SampleTestMapper sampleMapper;
     private final AbnormalReportMapper reportMapper;
+    private final WildlifeObsMapper obsMapper;
+    private final EpiAlertMapper alertMapper;
     private final TransactionTemplate transactionTemplate;
 
     public SampleTestRepositoryImpl(SampleTestMapper sampleMapper,
                                     AbnormalReportMapper reportMapper,
+                                    WildlifeObsMapper obsMapper,
+                                    EpiAlertMapper alertMapper,
                                     PlatformTransactionManager transactionManager) {
         this.sampleMapper = sampleMapper;
         this.reportMapper = reportMapper;
+        this.obsMapper = obsMapper;
+        this.alertMapper = alertMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -109,6 +129,10 @@ public class SampleTestRepositoryImpl implements SampleTestRepository {
                     throw new BizException("上报已结案或已不走采样线，检测结果回填失败");
                 }
             }
+            // 预警侧：结果一录成阳性，同一个事务里把这条预警跟着立起来；不是阳性的立不出来。
+            if (SampleTest.RESULT_POSITIVE.equals(sample.getResult())) {
+                raiseAlertForPositive(sample);
+            }
             return SampleTestPoConverter.toDomain(sampleMapper.selectById(sample.getId()));
         }));
     }
@@ -144,6 +168,48 @@ public class SampleTestRepositoryImpl implements SampleTestRepository {
         po.setId(IdUtil.getSnowflakeNextId());
         sampleMapper.insert(po);
         return SampleTestPoConverter.toDomain(po);
+    }
+
+    /**
+     * 阳性样本立预警（在检测结果回填的同一个事务里）：级别在上报当初判定的严重程度之上，
+     * 叠观测上抄的保护级别快照算（不跟名录后来的改动跑），立起来落在已发布。
+     * 同一份阳性样本只落一条：样本行已被本事务的条件更新锁住到提交，前后脚递两回在样本侧
+     * 就只放行一下；这里再数一道兜底，已有就不再落。编号 AL-YYYY-NNNN 撞号重取，不甩底层错。
+     */
+    private void raiseAlertForPositive(SampleTest sample) {
+        AbnormalReportPO reportPo = reportMapper.selectById(sample.getReportId());
+        if (reportPo == null) {
+            throw new BizException("异常上报不存在或已作废，预警生成失败");
+        }
+        WildlifeObsPO obsPo = obsMapper.selectById(reportPo.getObsId());
+        if (obsPo == null) {
+            throw new BizException("来源观测不存在或已作废，预警生成失败");
+        }
+        Long existing = alertMapper.selectCount(Wrappers.<EpiAlertPO>lambdaQuery()
+                .eq(EpiAlertPO::getSampleId, sample.getId()));
+        if (existing != null && existing > 0) {
+            return;
+        }
+        EpiAlert alert = EpiAlert.raise(sample.getReportId(), sample.getId(),
+                reportPo.getSeverity(), obsPo.getProtectionLevel());
+        String prefix = ALERT_NO_PREFIX + LocalDate.now().getYear() + "-";
+        // 取号走锁定读（当前读）：本事务里的一致读快照是固定的，靠它取号重试会反复撞同一个
+        // 旧号甚至搅出死锁；锁定读让并发立预警在号段锁上排队，各取新号，不甩底层错。
+        BizNoGenerator.insertWithRetry(
+                () -> {
+                    String maxNo = alertMapper.selectMaxNoForUpdate(prefix, prefix.length() + 1);
+                    return maxNo == null ? null : Long.valueOf(maxNo.substring(prefix.length()));
+                },
+                prefix,
+                no -> insertAlert(alert, no));
+    }
+
+    private EpiAlert insertAlert(EpiAlert alert, String alertNo) {
+        alert.setAlertNo(alertNo);
+        EpiAlertPO po = EpiAlertPoConverter.toPo(alert);
+        po.setId(IdUtil.getSnowflakeNextId());
+        alertMapper.insert(po);
+        return EpiAlertPoConverter.toDomain(po);
     }
 
     private static boolean hasText(String value) {
