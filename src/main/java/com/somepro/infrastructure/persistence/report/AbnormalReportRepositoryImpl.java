@@ -83,6 +83,20 @@ public class AbnormalReportRepositoryImpl implements AbnormalReportRepository {
     }
 
     @Override
+    public Mono<List<AbnormalReport>> findActiveByObsId(Long obsId) {
+        return blocking(() -> {
+            // @TableLogic 自动拼 del_flag=0：已作废上报不进事件线。
+            List<AbnormalReportPO> rows = reportMapper.selectList(
+                    Wrappers.<AbnormalReportPO>lambdaQuery()
+                            .eq(AbnormalReportPO::getObsId, obsId)
+                            .orderByAsc(AbnormalReportPO::getId));
+            return rows.stream()
+                    .map(AbnormalReportPoConverter::toDomain)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    @Override
     public Mono<Boolean> advance(AbnormalReport report, String fromStatus) {
         return blocking(() -> {
             // 条件更新：只有仍处原状态的那一行才翻得动（并发推同一单只放行一下）；

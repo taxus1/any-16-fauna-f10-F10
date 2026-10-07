@@ -98,6 +98,19 @@ public class SampleTestRepositoryImpl implements SampleTestRepository {
     }
 
     @Override
+    public Mono<List<SampleTest>> findActiveByReportId(Long reportId) {
+        return blocking(() -> {
+            // @TableLogic 自动拼 del_flag=0：已删除样本不进事件线。
+            List<SampleTestPO> rows = sampleMapper.selectList(Wrappers.<SampleTestPO>lambdaQuery()
+                    .eq(SampleTestPO::getReportId, reportId)
+                    .orderByAsc(SampleTestPO::getId));
+            return rows.stream()
+                    .map(SampleTestPoConverter::toDomain)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    @Override
     public Mono<SampleTest> recordResult(SampleTest sample) {
         return blocking(() -> transactionTemplate.execute(txStatus -> {
             // 样本侧：按 result=PENDING 条件更新，同一条样本的结果只翻得动一次；

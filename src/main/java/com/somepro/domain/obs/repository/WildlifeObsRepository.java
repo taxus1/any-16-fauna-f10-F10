@@ -29,6 +29,13 @@ public interface WildlifeObsRepository {
     Mono<WildlifeObs> findById(Long id);
 
     /**
+     * 按观测编号（obsNo，如 WO-2026-000001）查看在册观测。
+     * 编号压根不存在的、或该观测已作废（del_flag=1）的，都翻不到，返回空 ——
+     * 事件线倒查拿编号入口时照这个口径：查不到就回空线，不报错。
+     */
+    Mono<WildlifeObs> findByObsNo(String obsNo);
+
+    /**
      * 作废：逻辑删除（del_flag=1），清单里不再翻到，底子仍留在库里备查。
      */
     Mono<Void> voidObs(Long id);

@@ -79,6 +79,17 @@ public class WildlifeObsRepositoryImpl implements WildlifeObsRepository {
     }
 
     @Override
+    public Mono<WildlifeObs> findByObsNo(String obsNo) {
+        return blocking(() -> {
+            // 走 @TableLogic 的 selectList：自动拼 del_flag=0，已作废观测翻不到（编号也不行）。
+            WildlifeObsPO po = obsMapper.selectOne(Wrappers.<WildlifeObsPO>lambdaQuery()
+                    .eq(WildlifeObsPO::getObsNo, obsNo)
+                    .last("LIMIT 1"));
+            return po == null ? null : WildlifeObsPoConverter.toDomain(po);
+        });
+    }
+
+    @Override
     public Mono<Void> voidObs(Long id) {
         return blocking(() -> {
             // @TableLogic 把 deleteById 改写成 UPDATE t_wildlife_obs SET del_flag=1

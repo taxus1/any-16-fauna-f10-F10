@@ -4,6 +4,8 @@ import com.somepro.domain.sample.model.SampleTest;
 import com.somepro.domain.shared.model.PageResult;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
+
 /**
  * 采样送检与检测的仓储端口（领域层定义，基础设施层实现）。
  */
@@ -18,6 +20,13 @@ public interface SampleTestRepository {
      * 按 id 查看在册样本（del_flag=0）。
      */
     Mono<SampleTest> findById(Long id);
+
+    /**
+     * 倒一条上报下送的全部在册样本（一份上报可多次采样送检），按 id 升序，次序稳定。
+     * 已删除（del_flag=1）的样本不出现（@TableLogic 自动过滤），没有时返回空列表。
+     * 事件线倒查用：已销掉的样本不再串进链里；待检没出结果的也算发生过，照留。
+     */
+    Mono<List<SampleTest>> findActiveByReportId(Long reportId);
 
     /**
      * 检测结果落库 + 联动，一个事务三头一起动：

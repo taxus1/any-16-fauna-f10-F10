@@ -58,6 +58,19 @@ public class EpiAlertRepositoryImpl implements EpiAlertRepository {
     }
 
     @Override
+    public Mono<List<EpiAlert>> findActiveByReportId(Long reportId) {
+        return blocking(() -> {
+            // @TableLogic 自动拼 del_flag=0：已删除预警不进事件线。
+            List<EpiAlertPO> rows = alertMapper.selectList(Wrappers.<EpiAlertPO>lambdaQuery()
+                    .eq(EpiAlertPO::getReportId, reportId)
+                    .orderByAsc(EpiAlertPO::getId));
+            return rows.stream()
+                    .map(EpiAlertPoConverter::toDomain)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    @Override
     public Mono<Boolean> advance(EpiAlert alert, String fromStatus) {
         return blocking(() -> transactionTemplate.execute(txStatus -> {
             // 预警侧：按原状态条件更新，同一条预警的状态只翻得动一次（并发推同一条只放行一下）；
